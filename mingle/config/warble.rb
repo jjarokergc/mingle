@@ -25,20 +25,6 @@ Warbler::Config.new do |config|
   # - compiled: compile .rb files to .class files
   # config.features = %w(gemjar)
 
-  # Application directories to be included in the webapp.
-  # config.dirs = %w(app config db lib log script vendor tmp)
-  if ENV['ENCRYPT_CODE'] == 'true'
-    config.dirs = %w(tmp/encrypted/app app/views config db tmp/encrypted/lib vendor script)
-  else
-    config.dirs = %w(app config db lib vendor script)
-  end
-
-  # Additional files/directories to include, above those in config.dirs
-
-  additional_files = ENV['TEST_DUAL_APP']? FileList["templates/**/*", "test/mocks/**/*", "test/test_helpers/*", "test/data/test_config/*"] : FileList["templates/**/*"]
-  config.includes = additional_files
-
-
   # Additional files/directories to exclude
   # config.excludes = FileList["lib/tasks/*"]
   excluded_file_list = FileList[
@@ -61,14 +47,27 @@ Warbler::Config.new do |config|
                              'config/keys/*',
                              'config/mingle.properties*'
                              ]
-  # if ENV["TEST_DUAL_APP"]
-    excluded_file_list += %w(config/periodical_tasks.yml config/migrator_periodical_tasks.yml) if ENV["TEST_DUAL_APP"]
-    excluded_file_list += %w(config/war/** config/log4j.* config/migrator_periodical_tasks.yml) if ENV['ENCRYPT_CODE']
-  #   excluded_file_list -= %w(vendor/plugins/tagged_tests vendor/plugins/inbrowsertest
-  #                            vendor/plugins/tagged_tests/**/* vendor/plugins/inbrowsertest/**/*)
-  # end
 
+  # Application directories to be included in the webapp.
+  # config.dirs = %w(app config db lib log script vendor tmp)
+  if ENV['ENCRYPT_CODE'] == 'true'
+    config.dirs = %w(tmp/encrypted/app app/views config db tmp/encrypted/lib vendor script)
+    excluded_file_list += %w(config/war/** config/log4j.* config/migrator_periodical_tasks.yml)
+  else
+    config.dirs = %w(app config db lib vendor script)
+  end
+
+  if ENV['TEST_DUAL_APP'] == 'true'
+    additional_files = FileList["templates/**/*", "test/mocks/**/*", "test/test_helpers/*", "test/data/test_config/*"] 
+    excluded_file_list += %w(config/periodical_tasks.yml config/migrator_periodical_tasks.yml)
+  else
+    additional_files = FileList["templates/**/*"]
+  end
+
+  # Additional files/directories to include or exclude
+  config.includes = additional_files
   config.excludes = excluded_file_list
+
   # Additional Java .jar files to include.  Note that if .jar files are placed
   # in lib (and not otherwise excluded) then they need not be mentioned here.
   # JRuby and JRuby-Rack are pre-loaded in this list.  Be sure to include your
@@ -98,7 +97,7 @@ Warbler::Config.new do |config|
 
   # An array of Bundler groups to avoid including in the war file.
   # Defaults to ["development", "test", "assets"].
-  config.bundle_without = [] if ENV["TEST_DUAL_APP"]
+  config.bundle_without = [] if (ENV["TEST_DUAL_APP"] == 'true')
 
   # Other gems to be included. If you don't use Bundler or a gemspec
   # file, you need to tell Warbler which gems your application needs
@@ -136,7 +135,7 @@ Warbler::Config.new do |config|
   config.pathmaps.public_html = ['%{^public/,}X%x', '%{^help/build/,help/}X%x']
   # Name of the archive (without the extension). Defaults to the basename
   # of the project directory.
-  if ENV['BUILD_DUAL_APP']
+  if ENV['BUILD_DUAL_APP'] == 'true'
     # Name of the archive (without the extension). Defaults to the basename
     # of the project directory.
     config.jar_name = "ROOT"
@@ -226,7 +225,7 @@ Warbler::Config.new do |config|
   # config.webxml.jndi = 'jdbc/rails'
 
   config.webxml.war.packaged = "true"
-  config.webxml.rails.env = ENV["TEST_DUAL_APP"] ? 'test' : "production"
+  config.webxml.rails.env = (ENV["TEST_DUAL_APP"] == 'true') ? 'test' : "production"
   config.webxml.rails.root = "/WEB-INF"
   config.webxml.public.root = "/"
 end

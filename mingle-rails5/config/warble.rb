@@ -43,7 +43,7 @@ Warbler::Config.new do |config|
       "vendor/java",
       "vendor/java/**/*",
   ]
-  excluded_file_list += %w(config/war/** config/log4j.*) if ENV['ENCRYPT_CODE']
+  excluded_file_list += %w(config/war/** config/log4j.*) if (ENV['ENCRYPT_CODE'] == 'true')
   config.excludes = excluded_file_list
 
   # Additional Java .jar files to include.  Note that if .jar files are placed
@@ -57,7 +57,7 @@ Warbler::Config.new do |config|
 
   # Loose Java classes and miscellaneous files to be included.
   # config.java_classes = FileList["target/classes/**.*"]
-  config.java_classes = FileList['config/log4j.properties'] unless ENV['ENCRYPT_CODE']
+  config.java_classes = FileList['config/log4j.properties'] unless (ENV['ENCRYPT_CODE'] == 'true')
 
   # One or more pathmaps defining how the java classes should be copied into
   # the archive. The example pathmap below accompanies the java_classes

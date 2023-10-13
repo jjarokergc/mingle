@@ -1,4 +1,8 @@
 #!/bin/bash
+set -e  #Stop on error
+set -x  # Echo commands
+PS4='$LINENO:'
+
 #  Copyright 2020 ThoughtWorks, Inc.
 #
 #  This program is free software: you can redistribute it and/or modify
@@ -13,6 +17,10 @@
 #
 #  You should have received a copy of the GNU Affero General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/agpl-3.0.txt>.
+
+unset GEM_PATH
+unset GEM_HOME
+
 WORKSPACE=$(cd `dirname $0`/.. && pwd)
 BUNDLER_VERSION="1.11.2"
 
@@ -22,13 +30,18 @@ fi
 
 export RBENV_VERSION=$(cat $WORKSPACE/.ruby-version)
 export RBENV_ROOT=$HOME/.rbenv$GO_AGENT_ID
+#Build Options
+export BUILD_DUAL_APP=true
+export NOCRYPT=true
+# Settings From 'mingle/config/warble.rb'
+export ENCRYPT_CODE=false 
+# Production Environment
+export TEST_DUAL_APP=false  # 'false' sets 'rails.env' = 'production'
 
-unset GEM_PATH
-unset GEM_HOME
-
+## START
 if [ ! -d $RBENV_ROOT ]; then
     echo "Installing rbenv."
-    git clone git://github.com/sstephenson/rbenv.git $RBENV_ROOT
+    git clone https://github.com/rbenv/rbenv.git $RBENV_ROOT
 fi
 
 if [ ! -d $RBENV_ROOT/plugins/rbenv-update ]; then
@@ -53,6 +66,11 @@ fi
 
 if [ ! -d $RBENV_ROOT/versions/$RBENV_VERSION ]; then
     echo "Installing ruby ${RBENV_VERSION}."
+
+# Workaround for problem installing jruby-launcher. Download and install directly.
+    echo "Patching build for jruby-launcher"
+    sed -i 's|./ruby gem install jruby-launcher|wget https://rubygems.org/downloads/jruby-launcher-1.1.19-java.gem \&\& ./ruby gem install jruby-launcher-1.1.19-java.gem \&\& rm jruby-launcher-1.1.19-java.gem|' /$RBENV_ROOT/plugins/ruby-build/bin/ruby-build
+
     $RBENV_ROOT/bin/rbenv update
     $RBENV_ROOT/bin/rbenv install $RBENV_VERSION
 
@@ -60,7 +78,6 @@ if [ ! -d $RBENV_ROOT/versions/$RBENV_VERSION ]; then
       # should be the same as pristine since this is a new install, but `gem pristine` hits file permissions errors the first time
       $RBENV_ROOT/bin/rbenv exec gem install jruby-launcher
     fi
-
     echo "done"
 elif [[ ("true" = "${RBENV_UPDATE:-false}") || ($(uname -a) =~ Darwin) ]]; then
     echo "Updating rbenv..."
@@ -69,16 +86,38 @@ else
     echo "Environment up to date, ruby version: $RBENV_VERSION"
 fi
 
+# If NOT (Path includes RBENV root AND bash_profile exports this path), then add it to bash_profile
 if ! (echo $PATH | grep -F "$RBENV_ROOT" > /dev/null 2>&1 && grep -F 'export PATH="$HOME/.rbenv' $HOME/.bash_profile 2>&1 > /dev/null); then
   echo "Adding rbenv to PATH"
   echo 'export PATH="$HOME/.rbenv$GO_AGENT_ID/bin:$PATH"' >> $HOME/.bash_profile
   export PATH="$RBENV_ROOT/bin:$PATH"
 fi
 
+# If NOT (rbenv command available AND initialization is not part of startup), then enable it in bash_profile
 if ! (type rbenv > /dev/null 2>&1 && grep -F 'eval "$(rbenv init -)"' $HOME/.bash_profile 2>&1 > /dev/null); then
   echo "Initializing rbenv in your .bash_profile"
   echo 'eval "$(rbenv init -)"' >> $HOME/.bash_profile
-  eval "$(rbenv init -)"
+  eval "$($RBENV_ROOT/bin/rbenv init -)"
+fi
+
+# Activate rbenv in non-interactive shell, such as in puppet deployment
+if ! [[ $RBENV_SHELL = 'bash' ]]; then 
+    eval "$($RBENV_ROOT/bin/rbenv init -)"
+fi
+# Confirm that rbenv has been initialized, else fail
+if ! [[ $RBENV_SHELL = 'bash' ]]; then 
+    echo "rbenv has not been initialized"
+    exit 1
+fi
+
+# Creating bash_profile will stop the execution of .bashrc which contains other startup tasks such as invoking nvm
+# if NOT (bash_profile invoking .bashrc) then invoke bashrc
+if ! ( grep -F 'if [ -f ~/.bashrc ]; then' $HOME/.bash_profile 2>&1 > /dev/null); then
+  cat << EOF >> $HOME/.bash_profile
+if [ -f ~/.bashrc ]; then
+	. ~/.bashrc
+fi
+EOF
 fi
 
 if ! ($RBENV_ROOT/shims/bundle --version 2> /dev/null | grep -F "$BUNDLER_VERSION" > /dev/null 2>&1); then
@@ -89,6 +128,11 @@ if ! ($RBENV_ROOT/shims/bundle --version 2> /dev/null | grep -F "$BUNDLER_VERSIO
     echo "done, result: $?"
 fi
 unset BUNDLER_VERSION
+
+#Patch to fix "Could not find rake-10.3.1 in any of the sources"
+echo "patch: to fix 'could not find rake...' failure"
+$RBENV_ROOT/bin/rbenv exec bundle update rake --local
+
 $RBENV_ROOT/bin/rbenv exec ruby -S bundle clean --force
 $RBENV_ROOT/bin/rbenv exec ruby -S bundle install --local
 $RBENV_ROOT/bin/rbenv rehash

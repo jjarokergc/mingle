@@ -1,4 +1,8 @@
-#!/usr/bin/env bash
+#!/bin/bash
+set -e  #Stop on error
+set -x  # Echo commands
+PS4='$LINENO:'
+
 # Copyright 2020 ThoughtWorks, Inc.
 # 
 # This program is free software: you can redistribute it and/or modify
@@ -39,28 +43,54 @@ unset RUBYOPT
 unset RBENV_GEMSET_ALREADY
 unset BUNDLE_GEMFILE
 unset RAILS_ENV
-unset
 
-set -e
 
-MINGLE_RAILS2_ROOT=./mingle
-MINGLE_RAILS5_ROOT=./mingle-rails5
+# Set up directories
+WORKSPACE=$(cd `dirname $0` && pwd)
+MINGLE_RAILS2_ROOT=$WORKSPACE/mingle
+MINGLE_RAILS5_ROOT=$WORKSPACE/mingle-rails5
 
+
+export RBENV_ROOT=$HOME/.rbenv$GO_AGENT_ID
+
+# Set rbenv if necessary (such as in puppet exec resource)
+# Rbenv was configured in the mingle and mingle-rails5 build scripts
+if ! [[ $RBENV_SHELL = 'bash' ]]; then 
+    eval "$($RBENV_ROOT/bin/rbenv init -)"
+fi
+
+# Load nvm if necessary (such as in puppet exec resource)
+if ! [[ $NVM_DIR = "$HOME/.nvm" ]]; then 
+  export NVM_DIR="$HOME/.nvm"
+  [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+fi
+
+#Build Options
 export BUILD_DUAL_APP=true
 export NOCRYPT=true
+# Settings From 'mingle/config/warble.rb'
+export ENCRYPT_CODE=false 
+# Production Environment
+export TEST_DUAL_APP=false  # 'false' sets 'rails.env' = 'production'
 
-pushd $MINGLE_RAILS5_ROOT > /dev/null 2>&1
+# Mingle Rails 2
+cd $MINGLE_RAILS2_ROOT 
+export RBENV_VERSION=$(cat $MINGLE_RAILS2_ROOT/.ruby-version)
+# Build shared assets
+echo "generating shared assets from $MINGLE_RAILS2_ROOT"
+$RBENV_ROOT/bin/rbenv exec bundle exec rake shared_assets  --trace
+cp shared_assets.yml $MINGLE_RAILS5_ROOT/config
+echo "generating artifact from $MINGLE_RAILS2_ROOT"
+$RBENV_ROOT/bin/rbenv exec bundle exec rake war:build[true] dual_app_installers --trace
+cp lib/version.jar $MINGLE_RAILS5_ROOT/lib
+
+
+# Mingle Rails 5
+cd $MINGLE_RAILS5_ROOT 
+export RBENV_VERSION=$(cat $MINGLE_RAILS5_ROOT/.ruby-version)
 echo "generating artifact from $MINGLE_RAILS5_ROOT"
-rbenv exec bundle exec rake war:build[true] --trace
-popd > /dev/null 2>&1
+$RBENV_ROOT/bin/rbenv exec bundle exec rake war:build[true] --trace
 
 cp $MINGLE_RAILS5_ROOT/rails_5.war $MINGLE_RAILS2_ROOT/
 
 
-
-pushd $MINGLE_RAILS2_ROOT > /dev/null 2>&1
-echo "generating artifact from $MINGLE_RAILS2_ROOT"
-rbenv exec bundle exec rake war:build[true] dual_app_installers --trace
-popd > /dev/null 2>&1
-
-echo "Artifacts are located at: $MINGLE_RAILS2_ROOT/dist"

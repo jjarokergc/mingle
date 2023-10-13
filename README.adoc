@@ -14,3 +14,4 @@ To generate installers run the command `./generate-installers.sh`. Make sure the
 == Support
 
 This project is not active any more. Any support email addresses found in the codebase are not valid any more.
+

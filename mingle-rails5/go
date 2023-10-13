@@ -1,4 +1,7 @@
 #!/bin/bash
+set -e  #Stop on error
+set -x  # Echo commands
+PS4='$LINENO:'
 
 #  Copyright 2020 ThoughtWorks, Inc.
 #
@@ -15,21 +18,30 @@
 #  You should have received a copy of the GNU Affero General Public License
 #  along with this program.  If not, see <https://www.gnu.org/licenses/agpl-3.0.txt>.
 
-WORKSPACE=$(cd `dirname $0` && pwd)
+unset GEM_PATH
+unset GEM_HOME
 
-if [ -e $WORKSPACE/.bundle ]; then
+WORKSPACE=$(cd `dirname $0` && pwd)
+BUNDLER_VERSION='1.16.1'
+
+if [[ -e $WORKSPACE/.bundle ]]; then
   rm -rf $WORKSPACE/.bundle
 fi
 
 export RBENV_VERSION=$(cat $WORKSPACE/.ruby-version)
 export RBENV_ROOT=$HOME/.rbenv$GO_AGENT_ID
+#Build Options
+export BUILD_DUAL_APP=true
+export NOCRYPT=true
+# Settings From 'mingle/config/warble.rb'
+export ENCRYPT_CODE=false 
+# Production Environment
+export TEST_DUAL_APP=false  # 'false' sets 'rails.env' = 'production'
 
-unset GEM_PATH
-unset GEM_HOME
-
+## START
 if [ ! -d $RBENV_ROOT ]; then
     echo "Installing rbenv."
-    git clone git://github.com/sstephenson/rbenv.git $RBENV_ROOT
+    git clone https://github.com/rbenv/rbenv.git $RBENV_ROOT
 fi
 
 if [ ! -d $RBENV_ROOT/plugins/rbenv-update ]; then
@@ -79,10 +91,29 @@ fi
 if ! (type rbenv > /dev/null 2>&1 && grep -F 'eval "$(rbenv init -)"' $HOME/.bash_profile 2>&1 > /dev/null); then
   echo "Initializing rbenv in your .bash_profile"
   echo 'eval "$(rbenv init -)"' >> $HOME/.bash_profile
-  eval "$(rbenv init -)"
+  eval "$($RBENV_ROOT/bin/rbenv init -)"
+
 fi
 
-BUNDLER_VERSION=1.16.1
+# Activate rbenv in non-interactive shell, such as in puppet deployment
+if ! [[ $RBENV_SHELL = 'bash' ]]; then 
+    eval "$($RBENV_ROOT/bin/rbenv init -)"
+fi
+# Confirm that rbenv has been initialized, else fail
+if ! [[ $RBENV_SHELL = 'bash' ]]; then 
+    echo "rbenv has not been initialized"
+    exit 1
+fi
+
+# Creating bash_profile will stop the execution of .bashrc which contains other startup tasks such as invoking nvm
+# if NOT (bash_profile invoking .bashrc) then invoke bashrc
+if ! ( grep -F 'if [ -f ~/.bashrc ]; then' $HOME/.bash_profile 2>&1 > /dev/null); then
+  cat << EOF >> $HOME/.bash_profile
+if [ -f ~/.bashrc ]; then
+	. ~/.bashrc
+fi
+EOF
+fi
 
 if ! ($RBENV_ROOT/shims/bundle --version 2> /dev/null | grep -F "$BUNDLER_VERSION" > /dev/null 2>&1); then
     echo "installing bundler $BUNDLER_VERSION"
@@ -94,9 +125,19 @@ fi
 
 unset BUNDLER_VERSION
 
+#Patch to fix "Could not find rake-12.1.0 in any of the sources"
+echo "patch: to fix 'could not find rake...' failure"
+$RBENV_ROOT/bin/rbenv exec bundle update rake --local
+
 $RBENV_ROOT/bin/rbenv exec ruby -S bundle clean --force
 $RBENV_ROOT/bin/rbenv exec ruby -S bundle install --local
 $RBENV_ROOT/bin/rbenv rehash
+
+# Load nvm if necessary (such as in puppet exec resource)
+if ! [[ $NVM_DIR = "$HOME/.nvm" ]]; then 
+  export NVM_DIR="$HOME/.nvm"
+  [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"  # This loads nvm
+fi
 
 yarn install
 
